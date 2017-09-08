@@ -18,6 +18,9 @@ type Syncer struct {
 
 	// The value to use when a key is removed.
 	RemovedValue []byte
+
+	// Don't really send messages
+	DryRun bool
 }
 
 func New(topic string) Syncer {
@@ -95,6 +98,12 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stat
 			Value:     sarama.ByteEncoder(kv.Value),
 		}
 		stats.SendCount += 1
+	}
+
+	if s.DryRun {
+		send = func(kv KeyValue) {
+			glog.Infof("Would have sent: key=%q value=%q", string(kv.Key), string(kv.Value))
+		}
 	}
 
 	// Compare and send changes
