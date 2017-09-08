@@ -153,6 +153,7 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stat
 
 			send(kv)
 			stats.Modified += 1
+
 		} else {
 			send(kv)
 			stats.Created += 1

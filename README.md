@@ -1,5 +1,8 @@
+Generic key/value source to topic synchronization package.
 
-= Example
+Requires go 1.9 to compile.
+
+# Example
 
 ```go
 package main
@@ -29,7 +32,7 @@ func main() {
 	}
 
 	kvSource := make(chan kafkasync.KeyValue, 10)
-	go dataSearch(kvSource)
+	go fetchData(kvSource)
 
 	syncer := kafkasync.New("tests.data2kafka")
 	stats, err := syncer.Sync(kafka, kvSource)
@@ -45,7 +48,7 @@ func main() {
 	}
 }
 
-func dataSearch(kvSource chan kafkasync.KeyValue) {
+func fetchData(kvSource chan kafkasync.KeyValue) {
 	defer close(kvSource)
 
 	kvSource <- kafkasync.KeyValue{
