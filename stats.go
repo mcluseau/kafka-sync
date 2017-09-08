@@ -21,6 +21,7 @@ type Stats struct {
 	Count uint64
 
 	// Performance statistics
+	MessagesInTopic   uint64
 	ReadTopicDuration time.Duration
 	SyncDuration      time.Duration
 	TotalDuration     time.Duration
@@ -37,7 +38,7 @@ func (stats *Stats) Log() {
 	if stats.ErrorCount >= 0 {
 		glog.Infof("- %d send errors", stats.ErrorCount)
 	}
-	glog.Infof("- read:  %s", stats.ReadTopicDuration)
+	glog.Infof("- read:  %s (%d messages)", stats.ReadTopicDuration, stats.MessagesInTopic)
 	glog.Infof("- sync:  %s", stats.SyncDuration)
 	glog.Infof("- total: %s", stats.TotalDuration)
 }

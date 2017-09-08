@@ -41,49 +41,15 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stat
 
 	topicHashes := map[hash]hash{}
 	keyHashToValue := map[hash][]byte{}
-	removedHash := sha256.Sum256(s.RemovedValue)
 
 	startTime := time.Now()
 
 	// Read the topic
-	consumer, err := sarama.NewConsumerFromClient(kafka)
-	if err != nil {
-		return
-	}
-
-	pc, err := consumer.ConsumePartition(s.Topic, s.Partition, sarama.OffsetOldest)
-	if err != nil {
-		return
-	}
-
-	highWater, err := kafka.GetOffset(s.Topic, s.Partition, sarama.OffsetNewest)
-
 	glog.Info("Reading topic ", s.Topic, ", partition ", s.Partition)
-	if highWater > 0 {
-		for m := range pc.Messages() {
-			hw := pc.HighWaterMarkOffset()
-			if hw > highWater {
-				highWater = hw
-			}
-			glog.V(4).Info("-> offset: ", m.Offset, " / ", highWater-1)
 
-			keyHash := sha256.Sum256(m.Key)
-			valueHash := sha256.Sum256(m.Value)
-
-			keyHashToValue[keyHash] = m.Key
-
-			if valueHash == removedHash {
-				delete(topicHashes, keyHash)
-			} else {
-				topicHashes[keyHash] = valueHash
-			}
-
-			if m.Offset+1 >= highWater {
-				break
-			}
-		}
+	if err = s.loadTopic(kafka, topicHashes, keyHashToValue, stats); err != nil {
+		return
 	}
-	pc.Close()
 
 	stats.ReadTopicDuration = time.Since(startTime)
 
@@ -173,5 +139,66 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stat
 
 	stats.TotalDuration = time.Since(startTime)
 
+	return
+}
+
+func (s *Syncer) loadTopic(
+	kafka sarama.Client,
+	topicHashes map[hash]hash,
+	keyHashToValue map[hash][]byte,
+	stats *Stats) (err error) {
+
+	lowWater, err := kafka.GetOffset(s.Topic, s.Partition, sarama.OffsetOldest)
+	if err != nil {
+		return
+	}
+	highWater, err := kafka.GetOffset(s.Topic, s.Partition, sarama.OffsetNewest)
+	if err != nil {
+		return
+	}
+
+	if highWater == 0 || lowWater == highWater {
+		// topic is empty
+		return
+	}
+
+	removedHash := sha256.Sum256(s.RemovedValue)
+
+	consumer, err := sarama.NewConsumerFromClient(kafka)
+	if err != nil {
+		return
+	}
+
+	pc, err := consumer.ConsumePartition(s.Topic, s.Partition, sarama.OffsetOldest)
+	if err != nil {
+		return
+	}
+
+	for m := range pc.Messages() {
+		stats.MessagesInTopic += 1
+
+		hw := pc.HighWaterMarkOffset()
+		if hw > highWater {
+			highWater = hw
+		}
+		glog.V(4).Info("-> offset: ", m.Offset, " / ", highWater-1)
+
+		keyHash := sha256.Sum256(m.Key)
+		valueHash := sha256.Sum256(m.Value)
+
+		keyHashToValue[keyHash] = m.Key
+
+		if valueHash == removedHash {
+			delete(topicHashes, keyHash)
+		} else {
+			topicHashes[keyHash] = valueHash
+		}
+
+		if m.Offset+1 >= highWater {
+			break
+		}
+	}
+	pc.Close()
+	consumer.Close()
 	return
 }
