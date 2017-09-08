@@ -87,7 +87,7 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stat
 
 	stats.ReadTopicDuration = time.Since(startTime)
 
-	// Prepare producer)
+	// Prepare producer
 	producer, err := sarama.NewAsyncProducerFromClient(kafka)
 	if err != nil {
 		return
