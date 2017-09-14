@@ -1,7 +1,6 @@
 package kafkasync
 
 import (
-	"crypto/sha256"
 	"sync"
 	"time"
 
@@ -34,8 +33,6 @@ func New(topic string) Syncer {
 
 type KeyValue = diff.KeyValue
 
-type hash = [sha256.Size]byte
-
 // Synchronize an key-indexed data source with a topic.
 //
 // The kvSource channel provides values in the reference store. It MUST NOT produce duplicate keys.
@@ -64,7 +61,11 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stat
 	startSyncTime := time.Now()
 
 	changes := make(chan diff.Change, 10)
-	go diff.DiffStreamIndex(kvSource, topicIndex, changes)
+	go func() {
+		diff.DiffStreamIndex(kvSource, topicIndex, changes)
+		close(changes)
+		glog.V(1).Infof("Sync to %s partition %d finished", s.Topic, s.Partition)
+	}()
 
 	s.ApplyChanges(changes, send, stats)
 	finish()
