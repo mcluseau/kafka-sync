@@ -1,6 +1,7 @@
 package kafkasync
 
 import (
+	"bytes"
 	"sync"
 	"time"
 
@@ -199,7 +200,11 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index *diff.Index) (msgCount ui
 		}
 		glog.V(4).Info("-> offset: ", m.Offset, " / ", highWater-1)
 
-		index.Index(KeyValue{m.Key, m.Value})
+		value := m.Value
+		if bytes.Equal(value, s.RemovedValue) {
+			value = nil
+		}
+		index.Index(KeyValue{m.Key, value})
 		msgCount += 1
 
 		if m.Offset+1 >= highWater {
