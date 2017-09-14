@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/MikaelCluseau/go-diff"
 	"github.com/Shopify/sarama"
 	"github.com/golang/glog"
 )
@@ -31,32 +32,59 @@ func New(topic string) Syncer {
 	}
 }
 
-type KeyValue struct {
-	Key   []byte
-	Value []byte
-}
+type KeyValue = diff.KeyValue
 
 type hash = [sha256.Size]byte
 
-// kvSource mustn't send duplicate keys!
+// Synchronize an key-indexed data source with a topic.
+//
+// The kvSource channel provides values in the reference store. It MUST NOT produce duplicate keys.
 func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stats, err error) {
 	stats = &Stats{}
-
-	topicHashes := map[hash]hash{}
-	keyHashToValue := map[hash][]byte{}
 
 	startTime := time.Now()
 
 	// Read the topic
 	glog.Info("Reading topic ", s.Topic, ", partition ", s.Partition)
 
-	if err = s.loadTopic(kafka, topicHashes, keyHashToValue, stats); err != nil {
+	topicIndex := diff.NewIndex(false)
+	msgCount, err := s.IndexTopic(kafka, topicIndex)
+	if err != nil {
 		return
 	}
+
+	stats.MessagesInTopic = msgCount
 
 	stats.ReadTopicDuration = time.Since(startTime)
 
 	// Prepare producer
+	send, finish := s.SetupProducer(kafka, stats)
+
+	// Compare and send changes
+	startSyncTime := time.Now()
+
+	changes := make(chan diff.Change, 10)
+	go diff.DiffStreamIndex(kvSource, topicIndex, changes)
+
+	s.ApplyChanges(changes, send, stats)
+	finish()
+
+	stats.SyncDuration = time.Since(startSyncTime)
+
+	stats.TotalDuration = time.Since(startTime)
+
+	return
+}
+
+func (s *Syncer) SetupProducer(kafka sarama.Client, stats *Stats) (send func(KeyValue), finish func()) {
+	if s.DryRun {
+		send = func(kv KeyValue) {
+			glog.Infof("Would have sent: key=%q value=%q", string(kv.Key), string(kv.Value))
+		}
+		finish = func() {}
+		return
+	}
+
 	producer, err := sarama.NewAsyncProducerFromClient(kafka)
 	if err != nil {
 		return
@@ -90,7 +118,7 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stat
 
 	producerInput := producer.Input()
 
-	send := func(kv KeyValue) {
+	send = func(kv KeyValue) {
 		producerInput <- &sarama.ProducerMessage{
 			Topic:     s.Topic,
 			Partition: s.Partition,
@@ -99,69 +127,50 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stat
 		}
 		stats.SendCount += 1
 	}
-
-	if s.DryRun {
-		send = func(kv KeyValue) {
-			glog.Infof("Would have sent: key=%q value=%q", string(kv.Key), string(kv.Value))
-		}
+	finish = func() {
+		producer.AsyncClose()
+		wg.Wait()
 	}
-
-	// Compare and send changes
-	startSyncTime := time.Now()
-
-	for kv := range kvSource {
-		kv := kv
-
-		stats.Count += 1
-
-		keyHash := sha256.Sum256(kv.Key)
-		valueHash := sha256.Sum256(kv.Value)
-
-		if currentHash, ok := topicHashes[keyHash]; ok {
-			// seen hash (kvSource mustn't send duplicate keys!)
-			delete(topicHashes, keyHash)
-
-			if currentHash == valueHash {
-				stats.Unchanged += 1
-				continue
-			}
-
-			send(kv)
-			stats.Modified += 1
-
-		} else {
-			send(kv)
-			stats.Created += 1
-		}
-	}
-
-	for topicKeyHash, _ := range topicHashes {
-		topicKey := keyHashToValue[topicKeyHash]
-
-		send(KeyValue{topicKey, s.RemovedValue})
-		stats.Deleted += 1
-	}
-
-	producer.AsyncClose()
-	wg.Wait()
-	stats.SyncDuration = time.Since(startSyncTime)
-
-	stats.TotalDuration = time.Since(startTime)
-
 	return
 }
 
-func (s *Syncer) loadTopic(
-	kafka sarama.Client,
-	topicHashes map[hash]hash,
-	keyHashToValue map[hash][]byte,
-	stats *Stats) (err error) {
+func (s *Syncer) ApplyChanges(changes <-chan diff.Change, send func(KeyValue), stats *Stats) {
+	for change := range changes {
+		switch change.Type {
+		case diff.Deleted:
+			send(KeyValue{change.Key, s.RemovedValue})
 
-	lowWater, err := kafka.GetOffset(s.Topic, s.Partition, sarama.OffsetOldest)
+		case diff.Created, diff.Modified:
+			send(KeyValue{change.Key, change.Value})
+		}
+		switch change.Type {
+		case diff.Deleted:
+			stats.Deleted += 1
+
+		case diff.Unchanged:
+			stats.Unchanged += 1
+			stats.Count += 1
+
+		case diff.Created:
+			stats.Created += 1
+			stats.Count += 1
+
+		case diff.Modified:
+			stats.Modified += 1
+			stats.Count += 1
+		}
+	}
+}
+
+func (s *Syncer) IndexTopic(kafka sarama.Client, index *diff.Index) (msgCount uint64, err error) {
+	topic := s.Topic
+	partition := s.Partition
+
+	lowWater, err := kafka.GetOffset(topic, partition, sarama.OffsetOldest)
 	if err != nil {
 		return
 	}
-	highWater, err := kafka.GetOffset(s.Topic, s.Partition, sarama.OffsetNewest)
+	highWater, err := kafka.GetOffset(topic, partition, sarama.OffsetNewest)
 	if err != nil {
 		return
 	}
@@ -171,37 +180,26 @@ func (s *Syncer) loadTopic(
 		return
 	}
 
-	removedHash := sha256.Sum256(s.RemovedValue)
-
 	consumer, err := sarama.NewConsumerFromClient(kafka)
 	if err != nil {
 		return
 	}
 
-	pc, err := consumer.ConsumePartition(s.Topic, s.Partition, sarama.OffsetOldest)
+	pc, err := consumer.ConsumePartition(topic, partition, sarama.OffsetOldest)
 	if err != nil {
 		return
 	}
 
+	msgCount = 0
 	for m := range pc.Messages() {
-		stats.MessagesInTopic += 1
-
 		hw := pc.HighWaterMarkOffset()
 		if hw > highWater {
 			highWater = hw
 		}
 		glog.V(4).Info("-> offset: ", m.Offset, " / ", highWater-1)
 
-		keyHash := sha256.Sum256(m.Key)
-		valueHash := sha256.Sum256(m.Value)
-
-		keyHashToValue[keyHash] = m.Key
-
-		if valueHash == removedHash {
-			delete(topicHashes, keyHash)
-		} else {
-			topicHashes[keyHash] = valueHash
-		}
+		index.Index(KeyValue{m.Key, m.Value})
+		msgCount += 1
 
 		if m.Offset+1 >= highWater {
 			break
