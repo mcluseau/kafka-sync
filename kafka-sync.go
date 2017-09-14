@@ -52,6 +52,7 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stat
 	}
 
 	stats.MessagesInTopic = msgCount
+	glog.Info("Read ", msgCount, " messages from topic.")
 
 	stats.ReadTopicDuration = time.Since(startTime)
 
