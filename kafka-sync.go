@@ -5,9 +5,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/MikaelCluseau/go-diff"
 	"github.com/Shopify/sarama"
 	"github.com/golang/glog"
+	"github.com/mcluseau/go-diff"
 )
 
 type Syncer struct {

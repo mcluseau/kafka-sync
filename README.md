@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/MikaelCluseau/kafka-sync"
+	"github.com/mcluseau/kafka-sync"
 	"github.com/Shopify/sarama"
 	"github.com/golang/glog"
 )
