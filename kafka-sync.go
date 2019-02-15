@@ -37,7 +37,7 @@ type KeyValue = diff.KeyValue
 // Synchronize an key-indexed data source with a topic.
 //
 // The kvSource channel provides values in the reference store. It MUST NOT produce duplicate keys.
-func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stats, err error) {
+func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue, cancel <-chan bool) (stats *Stats, err error) {
 	stats = &Stats{}
 
 	startTime := time.Now()
@@ -64,12 +64,12 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue) (stats *Stat
 
 	changes := make(chan diff.Change, 10)
 	go func() {
-		diff.DiffStreamIndex(kvSource, topicIndex, changes)
+		diff.DiffStreamIndex(kvSource, topicIndex, changes, cancel)
 		close(changes)
 		glog.V(1).Infof("Sync to %s partition %d finished", s.Topic, s.Partition)
 	}()
 
-	s.ApplyChanges(changes, send, stats)
+	s.ApplyChanges(changes, send, stats, cancel)
 	finish()
 
 	stats.SyncDuration = time.Since(startSyncTime)
@@ -137,8 +137,24 @@ func (s *Syncer) SetupProducer(kafka sarama.Client, stats *Stats) (send func(Key
 	return
 }
 
-func (s *Syncer) ApplyChanges(changes <-chan diff.Change, send func(KeyValue), stats *Stats) {
-	for change := range changes {
+func (s *Syncer) ApplyChanges(changes <-chan diff.Change, send func(KeyValue), stats *Stats, cancel <-chan bool) {
+	for {
+		var (
+			change diff.Change
+			ok     bool
+		)
+
+		select {
+		case <-cancel:
+			return // cancelled
+
+		case change, ok = <-changes:
+			if !ok {
+				// end of changes
+				return
+			}
+		}
+
 		switch change.Type {
 		case diff.Deleted:
 			send(KeyValue{change.Key, s.RemovedValue})
