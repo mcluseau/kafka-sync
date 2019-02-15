@@ -38,9 +38,7 @@ type KeyValue = diff.KeyValue
 //
 // The kvSource channel provides values in the reference store. It MUST NOT produce duplicate keys.
 func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue, cancel <-chan bool) (stats *Stats, err error) {
-	stats = &Stats{}
-
-	startTime := time.Now()
+	stats = NewStats()
 
 	// Read the topic
 	glog.Info("Reading topic ", s.Topic, ", partition ", s.Partition)
@@ -54,7 +52,12 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue, cancel <-cha
 	stats.MessagesInTopic = msgCount
 	glog.Info("Read ", msgCount, " messages from topic.")
 
-	stats.ReadTopicDuration = time.Since(startTime)
+	stats.ReadTopicDuration = stats.Elapsed()
+
+	return s.SyncWithPrepopulatedIndex(kafka, kvSource, topicIndex, cancel)
+}
+
+func (s Syncer) SyncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan KeyValue, topicIndex diff.Index, cancel <-chan bool) (stats *Stats, err error) {
 
 	// Prepare producer
 	send, finish := s.SetupProducer(kafka, stats)
@@ -73,8 +76,7 @@ func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue, cancel <-cha
 	finish()
 
 	stats.SyncDuration = time.Since(startSyncTime)
-
-	stats.TotalDuration = time.Since(startTime)
+	stats.TotalDuration = stats.Elapsed()
 
 	return
 }
@@ -181,7 +183,7 @@ func (s *Syncer) ApplyChanges(changes <-chan diff.Change, send func(KeyValue), s
 	}
 }
 
-func (s *Syncer) IndexTopic(kafka sarama.Client, index *diff.Index) (msgCount uint64, err error) {
+func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uint64, err error) {
 	topic := s.Topic
 	partition := s.Partition
 

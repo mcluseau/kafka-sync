@@ -14,6 +14,10 @@ github.com/mcluseau/go-diff v0.0.0-20170912074617-100286016ffb h1:jMnxJla+ExVW1P
 github.com/mcluseau/go-diff v0.0.0-20170912074617-100286016ffb/go.mod h1:ngKKa6Uw+/H/qY1yXddTTWMnNeywcau3+ZJEZkBovY0=
 github.com/mcluseau/go-diff v0.0.0-20190215075103-f7373f1a0c48 h1:VEk2dXaTSSnDACWp07xL3eySu5s89KtgZqGNxQ3KFE4=
 github.com/mcluseau/go-diff v0.0.0-20190215075103-f7373f1a0c48/go.mod h1:ngKKa6Uw+/H/qY1yXddTTWMnNeywcau3+ZJEZkBovY0=
+github.com/mcluseau/go-diff v0.0.0-20190215081842-ac6a69930555 h1:oLcb3+ma08zka3l9/1hI1WtpTnpBVcv/mljcWyM1klo=
+github.com/mcluseau/go-diff v0.0.0-20190215081842-ac6a69930555/go.mod h1:ngKKa6Uw+/H/qY1yXddTTWMnNeywcau3+ZJEZkBovY0=
+github.com/mcluseau/go-diff v0.0.0-20190215082533-ecf53d06a631 h1:nvu8lnx0AMC1tHxd/g8Q7rJgxk4epXRZZduBg0Zdx/U=
+github.com/mcluseau/go-diff v0.0.0-20190215082533-ecf53d06a631/go.mod h1:ngKKa6Uw+/H/qY1yXddTTWMnNeywcau3+ZJEZkBovY0=
 github.com/pierrec/lz4 v2.0.5+incompatible h1:2xWsjqPFWcplujydGg4WmhC/6fZqK42wMM8aXeqhl0I=
 github.com/pierrec/lz4 v2.0.5+incompatible/go.mod h1:pdkljMzZIN41W+lC3N2tnIh5sFi+IEE17M5jbnwPHcY=
 github.com/rcrowley/go-metrics v0.0.0-20181016184325-3113b8401b8a h1:9ZKAASQSHhDYGoxY8uLVpewe1GDZ2vu2Tr/vTdVAkFQ=
