@@ -198,6 +198,9 @@ func (s *Syncer) ApplyChanges(changes <-chan diff.Change, send func(KeyValue), s
 }
 
 func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uint64, err error) {
+	glog.V(4).Infof("IndexTopic: starting")
+	defer glog.V(4).Infof("IndexTopic: finished")
+
 	topic := s.Topic
 	partition := s.Partition
 
@@ -217,13 +220,14 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		return
 	}
 
-	var resumeOffset int64
 	resumeKey, err := index.ResumeKey()
 	if err != nil {
 		return
 	}
 
+	var resumeOffset int64
 	if resumeKey == nil {
+		glog.V(4).Info("-> no resume information, starting from oldest")
 		resumeOffset = sarama.OffsetOldest
 	} else {
 		_, err = fmt.Fscanf(bytes.NewBuffer(resumeKey), "%x", &resumeOffset)
