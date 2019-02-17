@@ -61,10 +61,17 @@ func (s Syncer) SyncWithIndex(kafka sarama.Client, kvSource <-chan KeyValue, top
 
 	stats.ReadTopicDuration = stats.Elapsed()
 
-	return s.SyncWithPrepopulatedIndex(kafka, kvSource, topicIndex, cancel)
+	err = s.syncWithPrepopulatedIndex(kafka, kvSource, topicIndex, stats, cancel)
+	return
 }
 
 func (s Syncer) SyncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan KeyValue, topicIndex diff.Index, cancel <-chan bool) (stats *Stats, err error) {
+	stats = NewStats()
+	err = s.syncWithPrepopulatedIndex(kafka, kvSource, topicIndex, stats, cancel)
+	return
+}
+
+func (s Syncer) syncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan KeyValue, topicIndex diff.Index, stats *Stats, cancel <-chan bool) (err error) {
 
 	// Prepare producer
 	send, finish := s.SetupProducer(kafka, stats)
@@ -108,7 +115,7 @@ func (s *Syncer) SetupProducer(kafka sarama.Client, stats *Stats) (send func(Key
 		go func() {
 			for prodError := range producer.Errors() {
 				glog.Error(prodError)
-				stats.ErrorCount += 1
+				stats.ErrorCount++
 			}
 			wg.Done()
 		}()
@@ -120,7 +127,7 @@ func (s *Syncer) SetupProducer(kafka sarama.Client, stats *Stats) (send func(Key
 		wg.Add(1)
 		go func() {
 			for range producer.Successes() {
-				stats.SuccessCount += 1
+				stats.SuccessCount++
 			}
 			wg.Done()
 		}()
@@ -137,7 +144,7 @@ func (s *Syncer) SetupProducer(kafka sarama.Client, stats *Stats) (send func(Key
 			Key:       sarama.ByteEncoder(kv.Key),
 			Value:     sarama.ByteEncoder(kv.Value),
 		}
-		stats.SendCount += 1
+		stats.SendCount++
 	}
 	finish = func() {
 		producer.AsyncClose()
