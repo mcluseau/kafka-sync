@@ -210,6 +210,8 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		return
 	}
 
+	glog.V(4).Infof("-> low/high water: %d/%d", lowWater, highWater)
+
 	if highWater == 0 || lowWater == highWater {
 		// topic is empty
 		return
@@ -228,6 +230,8 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		if err != nil {
 			return
 		}
+
+		glog.V(4).Info("-> resume offset: ", resumeOffset)
 
 		if resumeOffset >= highWater {
 			glog.V(4).Info("-> resume offset: ", resumeOffset, " >= ", highWater)
