@@ -235,9 +235,11 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 			return
 		}
 
+		resumeOffset++
+
 		glog.V(4).Info("-> resume offset: ", resumeOffset)
 
-		if resumeOffset+1 >= highWater {
+		if resumeOffset >= highWater {
 			glog.V(4).Infof("-> would consume from %d, high water is %d, so we're up-to-date",
 				resumeOffset+1, highWater)
 			return
@@ -249,7 +251,7 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		return
 	}
 
-	pc, err := consumer.ConsumePartition(topic, partition, resumeOffset+1)
+	pc, err := consumer.ConsumePartition(topic, partition, resumeOffset)
 	if err != nil {
 		return
 	}
