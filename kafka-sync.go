@@ -2,6 +2,7 @@ package kafkasync
 
 import (
 	"bytes"
+	"fmt"
 	"sync"
 	"time"
 
@@ -34,16 +35,22 @@ func New(topic string) Syncer {
 
 type KeyValue = diff.KeyValue
 
-// Synchronize an key-indexed data source with a topic.
+// Sync synchronize a key-indexed data source with a topic.
 //
 // The kvSource channel provides values in the reference store. It MUST NOT produce duplicate keys.
 func (s Syncer) Sync(kafka sarama.Client, kvSource <-chan KeyValue, cancel <-chan bool) (stats *Stats, err error) {
+	return s.SyncWithIndex(kafka, kvSource, diff.NewIndex(false), cancel)
+}
+
+// SyncWithIndex synchronize a data source with a topic, using the given index.
+//
+// The kvSource channel provides values in the reference store. It MUST NOT produce duplicate keys.
+func (s Syncer) SyncWithIndex(kafka sarama.Client, kvSource <-chan KeyValue, topicIndex diff.Index, cancel <-chan bool) (stats *Stats, err error) {
 	stats = NewStats()
 
 	// Read the topic
 	glog.Info("Reading topic ", s.Topic, ", partition ", s.Partition)
 
-	topicIndex := diff.NewIndex(false)
 	msgCount, err := s.IndexTopic(kafka, topicIndex)
 	if err != nil {
 		return
@@ -201,12 +208,27 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		return
 	}
 
+	var resumeOffset int64
+	resumeKey, err := index.ResumeKey()
+	if err != nil {
+		return
+	}
+
+	if resumeKey == nil {
+		resumeOffset = sarama.OffsetOldest
+	} else {
+		_, err = fmt.Fscanf(bytes.NewBuffer(resumeKey), "%x", &resumeOffset)
+		if err != nil {
+			return
+		}
+	}
+
 	consumer, err := sarama.NewConsumerFromClient(kafka)
 	if err != nil {
 		return
 	}
 
-	pc, err := consumer.ConsumePartition(topic, partition, sarama.OffsetOldest)
+	pc, err := consumer.ConsumePartition(topic, partition, resumeOffset)
 	if err != nil {
 		return
 	}
@@ -223,7 +245,7 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		if bytes.Equal(value, s.RemovedValue) {
 			value = nil
 		}
-		index.Index(KeyValue{m.Key, value})
+		index.Index(KeyValue{m.Key, value}, []byte(fmt.Sprintf("%16x", m.Offset)))
 		msgCount += 1
 
 		if m.Offset+1 >= highWater {
