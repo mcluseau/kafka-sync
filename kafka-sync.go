@@ -228,6 +228,11 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		if err != nil {
 			return
 		}
+
+		if resumeOffset >= highWater {
+			glog.V(4).Info("-> resume offset: ", resumeOffset, " >= ", highWater)
+			return
+		}
 	}
 
 	consumer, err := sarama.NewConsumerFromClient(kafka)
@@ -235,7 +240,7 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		return
 	}
 
-	pc, err := consumer.ConsumePartition(topic, partition, resumeOffset)
+	pc, err := consumer.ConsumePartition(topic, partition, resumeOffset+1)
 	if err != nil {
 		return
 	}
