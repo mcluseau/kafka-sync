@@ -241,7 +241,7 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 
 		if resumeOffset >= highWater {
 			glog.V(4).Infof("-> would consume from %d, high water is %d, so we're up-to-date",
-				resumeOffset+1, highWater)
+				resumeOffset, highWater)
 			return
 		}
 	}
