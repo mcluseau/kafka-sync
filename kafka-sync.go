@@ -11,6 +11,8 @@ import (
 	"github.com/mcluseau/go-diff"
 )
 
+const indexBatchSize = 500
+
 type Syncer struct {
 	// The topic to synchronize.
 	Topic string
@@ -256,6 +258,40 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		return
 	}
 
+	wg := &sync.WaitGroup{}
+	resumeOffset = -1
+
+	kvs := make(chan KeyValue, indexBatchSize)
+	resumeKeyCh := make(chan []byte, 1)
+
+	doIndex := func() {
+		defer wg.Done()
+
+		err := index.Index(kvs, resumeKeyCh)
+		if err != nil {
+			panic(err) // FIXME
+		}
+	}
+
+	// start indexing
+	wg.Add(1)
+	go doIndex()
+
+	saveBatch := func(restart bool) {
+		// finalize indexing
+		close(kvs)
+		resumeKeyCh <- []byte(fmt.Sprintf("%16x", resumeOffset))
+		wg.Wait()
+
+		if restart {
+			// start next indexing
+			kvs = make(chan KeyValue, indexBatchSize)
+			resumeKeyCh = make(chan []byte, 1)
+			wg.Add(1)
+			go doIndex()
+		}
+	}
+
 	msgCount = 0
 	for m := range pc.Messages() {
 		hw := pc.HighWaterMarkOffset()
@@ -268,14 +304,23 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		if bytes.Equal(value, s.RemovedValue) {
 			value = nil
 		}
-		index.Index(KeyValue{m.Key, value}, []byte(fmt.Sprintf("%16x", m.Offset)))
-		msgCount += 1
+		kvs <- KeyValue{m.Key, value}
+		msgCount++
+
+		resumeOffset = m.Offset
 
 		if m.Offset+1 >= highWater {
 			break
 		}
+
+		if msgCount%indexBatchSize == 0 {
+			saveBatch(true)
+		}
 	}
 	pc.Close()
 	consumer.Close()
+
+	saveBatch(false)
+
 	return
 }
