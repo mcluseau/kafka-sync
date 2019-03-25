@@ -74,14 +74,9 @@ func (s Syncer) SyncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan K
 }
 
 func (s Syncer) syncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan KeyValue, topicIndex diff.Index, stats *Stats, cancel <-chan bool) (err error) {
-	done := false
-
 	defer func() {
-		if !done {
-			err := topicIndex.Cleanup()
-			if err != nil {
-				glog.V(1).Infof("Cleanup error: %v", err)
-			}
+		if err := topicIndex.Cleanup(); err != nil {
+			glog.V(1).Infof("Cleanup error: %v", err)
 		}
 	}()
 
@@ -93,8 +88,10 @@ func (s Syncer) syncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan K
 
 	changes := make(chan diff.Change, 10)
 	go func() {
-		diff.DiffStreamIndex(kvSource, topicIndex, changes, cancel)
-		close(changes)
+		defer close(changes)
+		if err = diff.DiffStreamIndex(kvSource, topicIndex, changes, cancel); err != nil {
+			return
+		}
 		glog.V(1).Infof("Sync to %s partition %d finished", s.Topic, s.Partition)
 	}()
 
@@ -103,9 +100,6 @@ func (s Syncer) syncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan K
 
 	stats.SyncDuration = time.Since(startSyncTime)
 	stats.TotalDuration = stats.Elapsed()
-
-	err = topicIndex.Cleanup()
-	done = true
 
 	return
 }
