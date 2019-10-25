@@ -1,7 +1,5 @@
 Generic key/value source to topic synchronization package.
 
-Requires go 1.9 to compile.
-
 # Example
 
 ```go
