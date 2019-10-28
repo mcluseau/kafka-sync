@@ -2,6 +2,7 @@ package kafkasync
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -286,6 +287,8 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 
 	saveBatch := func(restart bool) {
 		// finalize indexing
+		glog.V(4).Info("finalize")
+		// FIXME use finalize on error for proper shutdown
 		close(kvs)
 		resumeKeyCh <- []byte(fmt.Sprintf("%16x", resumeOffset))
 		wg.Wait()
@@ -299,31 +302,55 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		}
 	}
 
+	// report kafka errors
+	go func() {
+		// FIXME fail on first error
+		for m := range pc.Errors() {
+			glog.V(4).Infof("-> got kafka error %+v", m)
+		}
+	}()
+
+
+	timer := time.NewTimer(kafka.Config().Consumer.MaxProcessingTime)
+	defer timer.Stop()
 	msgCount = 0
-	for m := range pc.Messages() {
-		hw := pc.HighWaterMarkOffset()
-		if hw > highWater {
-			highWater = hw
-		}
-		glog.V(4).Info("-> offset: ", m.Offset, " / ", highWater-1)
+consume:
+	for {
+		select {
+		case m := <- pc.Messages():
+			{
+				hw := pc.HighWaterMarkOffset()
+				if hw > highWater {
+					highWater = hw
+				}
+				glog.V(4).Info("-> offset: ", m.Offset, " / ", highWater-1)
 
-		value := m.Value
-		if bytes.Equal(value, s.RemovedValue) {
-			value = nil
-		}
-		kvs <- KeyValue{m.Key, value}
-		msgCount++
+				value := m.Value
+				if bytes.Equal(value, s.RemovedValue) {
+					value = nil
+				}
+				kvs <- KeyValue{m.Key, value}
+				msgCount++
 
-		resumeOffset = m.Offset
+				resumeOffset = m.Offset
 
-		if m.Offset+1 >= highWater {
-			break
-		}
+				if m.Offset+1 >= highWater {
+					break consume
+				}
 
-		if msgCount%indexBatchSize == 0 {
-			saveBatch(true)
+				if msgCount%indexBatchSize == 0 {
+					saveBatch(true)
+				}
+			}
+			// timeout if unable to read messages from kafka for a while
+		case <-timer.C:
+			pc.Close()
+			consumer.Close()
+			return msgCount, errors.New("timed out while waiting for kafka message")
 		}
+		timer.Reset(kafka.Config().Consumer.MaxProcessingTime)
 	}
+
 	pc.Close()
 	consumer.Close()
 
