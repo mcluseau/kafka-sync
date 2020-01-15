@@ -3,9 +3,8 @@ package kafkasync
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"time"
-
-	"github.com/golang/glog"
 )
 
 type Stats struct {
@@ -61,5 +60,5 @@ func (stats *Stats) LogString() string {
 }
 
 func (stats *Stats) Log() {
-	glog.Info("synchronization status:\n", stats.LogString())
+	log.Print("synchronization status:\n", stats.LogString())
 }

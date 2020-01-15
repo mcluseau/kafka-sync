@@ -3,7 +3,6 @@ module github.com/mcluseau/kafka-sync
 require (
 	github.com/Shopify/sarama v1.25.0
 	github.com/eapache/go-resiliency v1.2.0 // indirect
-	github.com/golang/glog v0.0.0-20160126235308-23def4e6c14b
 	github.com/hashicorp/go-uuid v1.0.2 // indirect
 	github.com/jcmturner/gofork v1.0.0 // indirect
 	github.com/mcluseau/go-diff v1.0.10

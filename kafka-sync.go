@@ -4,15 +4,17 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"log"
 	"sync"
 	"time"
 
 	"github.com/Shopify/sarama"
-	"github.com/golang/glog"
 	"github.com/mcluseau/go-diff"
 )
 
 const indexBatchSize = 500
+
+var Debug = false
 
 type Syncer struct {
 	// The topic to synchronize.
@@ -52,7 +54,9 @@ func (s Syncer) SyncWithIndex(kafka sarama.Client, kvSource <-chan KeyValue, top
 	stats = NewStats()
 
 	// Read the topic
-	glog.Info("Reading topic ", s.Topic, ", partition ", s.Partition)
+	if Debug {
+		log.Print("Reading topic ", s.Topic, ", partition ", s.Partition)
+	}
 
 	msgCount, err := s.IndexTopic(kafka, topicIndex)
 	if err != nil {
@@ -60,7 +64,10 @@ func (s Syncer) SyncWithIndex(kafka sarama.Client, kvSource <-chan KeyValue, top
 	}
 
 	stats.MessagesInTopic = msgCount
-	glog.Info("Read ", msgCount, " messages from topic.")
+
+	if Debug {
+		log.Print("Read ", msgCount, " messages from topic.")
+	}
 
 	stats.ReadTopicDuration = stats.Elapsed()
 
@@ -77,7 +84,9 @@ func (s Syncer) SyncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan K
 func (s Syncer) syncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan KeyValue, topicIndex diff.Index, stats *Stats, cancel <-chan bool) (err error) {
 	defer func() {
 		if err := topicIndex.Cleanup(); err != nil {
-			glog.V(1).Infof("Cleanup error: %v", err)
+			if Debug {
+				log.Printf("Cleanup error: %v", err)
+			}
 		}
 	}()
 
@@ -93,7 +102,9 @@ func (s Syncer) syncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan K
 		if err = diff.DiffStreamIndex(kvSource, topicIndex, changes, cancel); err != nil {
 			return
 		}
-		glog.V(1).Infof("Sync to %s partition %d finished", s.Topic, s.Partition)
+		if Debug {
+			log.Printf("Sync to %s partition %d finished", s.Topic, s.Partition)
+		}
 	}()
 
 	s.ApplyChanges(changes, send, stats, cancel)
@@ -108,7 +119,9 @@ func (s Syncer) syncWithPrepopulatedIndex(kafka sarama.Client, kvSource <-chan K
 func (s *Syncer) SetupProducer(kafka sarama.Client, stats *Stats) (send func(KeyValue), finish func()) {
 	if s.DryRun {
 		send = func(kv KeyValue) {
-			glog.Infof("Would have sent: key=%q value=%q", string(kv.Key), string(kv.Value))
+			if Debug {
+				log.Printf("Would have sent: key=%q value=%q", string(kv.Key), string(kv.Value))
+			}
 		}
 		finish = func() {}
 		return
@@ -123,11 +136,11 @@ func (s *Syncer) SetupProducer(kafka sarama.Client, stats *Stats) (send func(Key
 	if kafka.Config().Producer.Return.Errors {
 		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			for prodError := range producer.Errors() {
-				glog.Error(prodError)
+				log.Print("kafka-sync: got error from producer: ", prodError)
 				stats.ErrorCount++
 			}
-			wg.Done()
 		}()
 	} else {
 		stats.ErrorCount = -1
@@ -208,8 +221,10 @@ func (s *Syncer) ApplyChanges(changes <-chan diff.Change, send func(KeyValue), s
 }
 
 func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uint64, err error) {
-	glog.V(4).Infof("IndexTopic: starting")
-	defer glog.V(4).Infof("IndexTopic: finished")
+	if Debug {
+		log.Printf("IndexTopic: starting")
+		defer log.Printf("IndexTopic: finished")
+	}
 
 	topic := s.Topic
 	partition := s.Partition
@@ -223,7 +238,9 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 		return
 	}
 
-	glog.V(4).Infof("-> low/high water: %d/%d", lowWater, highWater)
+	if Debug {
+		log.Printf("-> low/high water: %d/%d", lowWater, highWater)
+	}
 
 	if highWater == 0 || lowWater == highWater {
 		// topic is empty
@@ -237,7 +254,9 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 
 	var resumeOffset int64
 	if resumeKey == nil {
-		glog.V(4).Info("-> no resume information, starting from oldest")
+		if Debug {
+			log.Print("-> no resume information, starting from oldest")
+		}
 		resumeOffset = sarama.OffsetOldest
 	} else {
 		_, err = fmt.Fscanf(bytes.NewBuffer(resumeKey), "%x", &resumeOffset)
@@ -247,11 +266,15 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 
 		resumeOffset++
 
-		glog.V(4).Info("-> resume offset: ", resumeOffset)
+		if Debug {
+			log.Print("-> resume offset: ", resumeOffset)
+		}
 
 		if resumeOffset >= highWater {
-			glog.V(4).Infof("-> would consume from %d, high water is %d, so we're up-to-date",
-				resumeOffset, highWater)
+			if Debug {
+				log.Printf("-> would consume from %d, high water is %d, so we're up-to-date",
+					resumeOffset, highWater)
+			}
 			return
 		}
 	}
@@ -287,8 +310,10 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 
 	saveBatch := func(restart bool) {
 		// finalize indexing
-		glog.V(4).Info("finalize")
-		// FIXME use finalize on error for proper shutdown
+		if Debug {
+			log.Print("finalize")
+		}
+
 		close(kvs)
 		resumeKeyCh <- []byte(fmt.Sprintf("%16x", resumeOffset))
 		wg.Wait()
@@ -306,10 +331,11 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 	go func() {
 		// FIXME fail on first error
 		for m := range pc.Errors() {
-			glog.V(4).Infof("-> got kafka error %+v", m)
+			if Debug {
+				log.Printf("-> got kafka error %+v", m)
+			}
 		}
 	}()
-
 
 	timer := time.NewTimer(kafka.Config().Consumer.MaxProcessingTime)
 	defer timer.Stop()
@@ -317,13 +343,16 @@ func (s *Syncer) IndexTopic(kafka sarama.Client, index diff.Index) (msgCount uin
 consume:
 	for {
 		select {
-		case m := <- pc.Messages():
+		case m := <-pc.Messages():
 			{
 				hw := pc.HighWaterMarkOffset()
 				if hw > highWater {
 					highWater = hw
 				}
-				glog.V(4).Info("-> offset: ", m.Offset, " / ", highWater-1)
+
+				if Debug {
+					log.Print("-> offset: ", m.Offset, " / ", highWater-1)
+				}
 
 				value := m.Value
 				if bytes.Equal(value, s.RemovedValue) {
