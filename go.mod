@@ -8,7 +8,7 @@ require (
 	github.com/mcluseau/go-diff v1.0.10
 	github.com/pierrec/lz4 v2.4.0+incompatible // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563 // indirect
-	golang.org/x/crypto v0.1.0 // indirect
+	golang.org/x/crypto v0.17.0 // indirect
 	gopkg.in/jcmturner/gokrb5.v7 v7.4.0 // indirect
 )
 
