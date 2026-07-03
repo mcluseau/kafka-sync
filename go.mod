@@ -17,12 +17,12 @@ require (
 	github.com/klauspost/compress v1.9.7 // indirect
 	github.com/pierrec/lz4 v2.4.0+incompatible // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563 // indirect
-	golang.org/x/crypto v0.45.0 // indirect
-	golang.org/x/net v0.47.0 // indirect
+	golang.org/x/crypto v0.51.0 // indirect
+	golang.org/x/net v0.55.0 // indirect
 	gopkg.in/jcmturner/aescts.v1 v1.0.1 // indirect
 	gopkg.in/jcmturner/dnsutils.v1 v1.0.1 // indirect
 	gopkg.in/jcmturner/gokrb5.v7 v7.4.0 // indirect
 	gopkg.in/jcmturner/rpc.v1 v1.1.0 // indirect
 )
 
-go 1.24.0
+go 1.25.0
